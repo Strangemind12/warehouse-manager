@@ -1,0 +1,124 @@
+name: Build Android APK/AAB
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  # ── Debug APK (no signing required) ──────────────────────────────
+  build-debug:
+    name: Build Debug APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Add Android platform
+        run: npx cap add android || true
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: warehouse-manager-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+
+  # ── Signed Release AAB (requires keystore secrets) ───────────────
+  build-release:
+    name: Build Signed AAB
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Add Android platform
+        run: npx cap add android || true
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Decode signing keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/keystore.jks
+          cat > android/keystore.properties << 'EOF'
+          storeFile=keystore.jks
+          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+
+      - name: Configure release signing
+        run: |
+          # Patch build.gradle to read signing config from keystore.properties
+          cd android
+          sed -i '/android {/a\
+          \
+              def keystoreProperties = new Properties()\
+              def keystorePropertiesFile = rootProject.file("keystore.properties")\
+              if (keystorePropertiesFile.exists()) {\
+                  keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\
+              }\
+          ' app/build.gradle
+
+          sed -i '/buildTypes {/a\
+              release {\
+                  minifyEnabled false\
+                  proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"\
+                  if (keystoreProperties.containsKey("storeFile")) {\
+                      signingConfig signingConfigs.create("release") {\
+                          storeFile file(keystoreProperties["storeFile"])\
+                          storePassword keystoreProperties["storePassword"]\
+                          keyAlias keystoreProperties["keyAlias"]\
+                          keyPassword keystoreProperties["keyPassword"]\
+                      }\
+                  }\
+              }
+          ' app/build.gradle
+
+      - name: Build release AAB
+        working-directory: android
+        run: ./gradlew bundleRelease --no-daemon
+
+      - name: Build release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Upload signed AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: warehouse-manager-release-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          retention-days: 90
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: warehouse-manager-release-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 90
