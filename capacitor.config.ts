@@ -12,7 +12,7 @@ const config: CapacitorConfig = {
   appName: "Warehouse Manager",
   webDir: "public",
   server: {
-    url: "https://project--5625df80-92d9-443a-a2e0-86dd7b24344e.lovable.app",
+    url: "https://warehouse-hub-hero.lovable.app",
     cleartext: false,
     androidScheme: "https",
   },
