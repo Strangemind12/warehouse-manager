@@ -15,9 +15,11 @@ const config: CapacitorConfig = {
     url: "https://warehouse-hub-hero.lovable.app",
     cleartext: false,
     androidScheme: "https",
+    allowNavigation: ["warehouse-hub-hero.lovable.app", "*.lovable.app"],
   },
   android: {
     allowMixedContent: false,
+    webContentsDebuggingEnabled: false,
   },
   plugins: {
     SplashScreen: {
